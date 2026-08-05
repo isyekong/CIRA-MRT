@@ -53,6 +53,65 @@ jobs:
       - name: Apply strict operator ownership fix
         run: python tools/apply_operator_gate_fix.py
 
+      - name: Align compatibility and legacy expectations
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          script = Path('mrt_cn_routes.py')
+          text = script.read_text(encoding='utf-8')
+          old = '''        spec = ({
+              "kind": kind,
+              "family": group.get("family"),
+              "aggregate": bool(group.get("aggregate")),
+              "enabled": enabled,
+          } if gate_type in ("domestic_customer_cone", "customer_cone") else None)
+          '''
+          new = '''        family = group.get("family")
+          if family is None and not group.get("aggregate"):
+              candidate_families = {
+                  OPERATOR_ANCHOR_FAMILY[asn]
+                  for asn in group.get("asns", ())
+                  if asn in OPERATOR_ANCHOR_FAMILY
+              }
+              if len(candidate_families) == 1:
+                  family = next(iter(candidate_families))
+
+          spec = ({
+              "kind": kind,
+              "family": family,
+              "aggregate": bool(group.get("aggregate")),
+              "enabled": enabled,
+          } if gate_type in ("domestic_customer_cone", "customer_cone") else None)
+          '''
+          if old in text:
+              script.write_text(text.replace(old, new, 1), encoding='utf-8')
+          elif 'candidate_families = {' not in text:
+              raise SystemExit('build_group_gates compatibility block not found')
+
+          tests = Path('tests/test_filters.py')
+          text = tests.read_text(encoding='utf-8')
+          old = '''# Rule 2: a CN-registered origin is admitted even when the path chain is broken.
+          def test_cone_gate_includes_cn_origin_even_without_chain():
+              # 58453<->4826 not a customer link, but origin 4808 is CN-registered.
+              buffers = _flush_one([58453, 4826, 4808],
+                                   "1.2.4.0/24", _MOBILE_GLOBAL, cn={4808}, p2c={})
+              assert "1.2.4.0/24" in buffers["mobile_global"]["v4"]
+          '''
+          new = '''# CN registration alone must not bypass the verified downstream chain.
+          def test_cone_gate_rejects_cn_origin_without_chain():
+              # 58453<->4826 is not a customer link, even though origin 4808 is CN.
+              buffers = _flush_one([58453, 4826, 4808],
+                                   "1.2.4.0/24", _MOBILE_GLOBAL, cn={4808}, p2c={})
+              assert "1.2.4.0/24" not in buffers["mobile_global"]["v4"]
+          '''
+          if old in text:
+              tests.write_text(text.replace(old, new, 1), encoding='utf-8')
+          elif 'test_cone_gate_rejects_cn_origin_without_chain' not in text:
+              raise SystemExit('legacy CN bypass test block not found')
+          PY
+
       - name: Commit source repair to branch
         shell: bash
         run: |
@@ -62,7 +121,8 @@ jobs:
           git add mrt_cn_routes.py README.md \
             tools/apply_operator_gate_fix.py \
             tools/validate_operator_outputs.py \
-            tests/test_operator_customer_gates.py
+            tests/test_operator_customer_gates.py \
+            tests/test_filters.py
           if git diff --cached --quiet; then
             echo 'Source repair was already committed'
           else
