@@ -53,68 +53,46 @@ jobs:
       - name: Apply strict operator ownership fix
         run: python tools/apply_operator_gate_fix.py
 
-      - name: Align compatibility and legacy expectations
+      - name: Repair compatibility block and assert strict test semantics
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
 
-          script = Path('mrt_cn_routes.py')
-          text = script.read_text(encoding='utf-8')
-          if 'candidate_families = {' not in text:
-              pattern = re.compile(
-                  r'^        spec = \(\{\n'
-                  r'            "kind": kind,\n'
-                  r'            "family": group\.get\("family"\),\n'
-                  r'            "aggregate": bool\(group\.get\("aggregate"\)\),\n'
-                  r'            "enabled": enabled,\n'
-                  r'        \} if gate_type in \("domestic_customer_cone", "customer_cone"\) else None\)',
-                  re.MULTILINE,
-              )
-              replacement = '''        family = group.get("family")
-          if family is None and not group.get("aggregate"):
-              candidate_families = {
-                  OPERATOR_ANCHOR_FAMILY[asn]
-                  for asn in group.get("asns", ())
-                  if asn in OPERATOR_ANCHOR_FAMILY
-              }
-              if len(candidate_families) == 1:
-                  family = next(iter(candidate_families))
+          script = Path("mrt_cn_routes.py")
+          text = script.read_text(encoding="utf-8")
+          function_start = text.index("def build_group_gates(")
+          block_start = text.index('        family = group.get("family")\n', function_start)
+          block_end_marker = "        gates[key] = spec\n"
+          block_end = text.index(block_end_marker, block_start) + len(block_end_marker)
+          replacement = "\n".join([
+              '        family = group.get("family")',
+              '        if family is None and not group.get("aggregate"):',
+              '            candidate_families = {',
+              '                OPERATOR_ANCHOR_FAMILY[asn]',
+              '                for asn in group.get("asns", ())',
+              '                if asn in OPERATOR_ANCHOR_FAMILY',
+              '            }',
+              '            if len(candidate_families) == 1:',
+              '                family = next(iter(candidate_families))',
+              '',
+              '        spec = ({',
+              '            "kind": kind,',
+              '            "family": family,',
+              '            "aggregate": bool(group.get("aggregate")),',
+              '            "enabled": enabled,',
+              '        } if gate_type in ("domestic_customer_cone", "customer_cone") else None)',
+              '        gates[key] = spec',
+              '',
+          ])
+          script.write_text(text[:block_start] + replacement + text[block_end:], encoding="utf-8")
 
-          spec = ({
-              "kind": kind,
-              "family": family,
-              "aggregate": bool(group.get("aggregate")),
-              "enabled": enabled,
-          } if gate_type in ("domestic_customer_cone", "customer_cone") else None)'''
-              text, count = pattern.subn(replacement, text, count=1)
-              if count != 1:
-                  raise SystemExit(f'build_group_gates compatibility replacement count={count}')
-              script.write_text(text, encoding='utf-8')
-
-          tests = Path('tests/test_filters.py')
-          text = tests.read_text(encoding='utf-8')
-          if 'test_cone_gate_rejects_cn_origin_without_chain' not in text:
-              pattern = re.compile(
-                  r'^# Rule 2: a CN-registered origin is admitted even when the path chain is broken\.\n'
-                  r'def test_cone_gate_includes_cn_origin_even_without_chain\(\):\n'
-                  r'    # 58453<->4826 not a customer link, but origin 4808 is CN-registered\.\n'
-                  r'    buffers = _flush_one\(\[58453, 4826, 4808\],\n'
-                  r'                         "1\.2\.4\.0/24", _MOBILE_GLOBAL, cn=\{4808\}, p2c=\{\}\)\n'
-                  r'    assert "1\.2\.4\.0/24" in buffers\["mobile_global"\]\["v4"\]',
-                  re.MULTILINE,
-              )
-              replacement = '''# CN registration alone must not bypass the verified downstream chain.
-          def test_cone_gate_rejects_cn_origin_without_chain():
-              # 58453<->4826 is not a customer link, even though origin 4808 is CN.
-              buffers = _flush_one([58453, 4826, 4808],
-                                   "1.2.4.0/24", _MOBILE_GLOBAL, cn={4808}, p2c={})
-              assert "1.2.4.0/24" not in buffers["mobile_global"]["v4"]'''
-              text, count = pattern.subn(replacement, text, count=1)
-              if count != 1:
-                  raise SystemExit(f'legacy CN bypass test replacement count={count}')
-              tests.write_text(text, encoding='utf-8')
+          tests = Path("tests/test_filters.py")
+          test_text = tests.read_text(encoding="utf-8")
+          if "test_cone_gate_rejects_cn_origin_without_chain" not in test_text:
+              raise SystemExit("strict CN-origin bypass rejection test is missing")
+          if "test_cone_gate_includes_cn_origin_even_without_chain" in test_text:
+              raise SystemExit("obsolete CN-origin bypass test is still present")
           PY
 
       - name: Commit source repair to branch
