@@ -49,30 +49,22 @@ jobs:
           install -D -m 0644 \
             /tmp/operator-gate-fix/cira-fix/tests/test_operator_customer_gates.py \
             tests/test_operator_customer_gates.py
-          install -D -m 0644 \
-            /tmp/operator-gate-fix/cira-fix/.github/workflows/validate-operator-customer-gates.yml \
-            .github/workflows/validate-operator-customer-gates.yml
 
       - name: Apply strict operator ownership fix
         run: python tools/apply_operator_gate_fix.py
 
-      - name: Replace bootstrap files with final repair
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -f ci/operator-gate-fix-bundle.b64
-          rm -f .github/workflows/bootstrap-operator-customer-gates.yml
-          git status --short
-
-      - name: Commit final repair to branch
+      - name: Commit source repair to branch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add mrt_cn_routes.py README.md \
+            tools/apply_operator_gate_fix.py \
+            tools/validate_operator_outputs.py \
+            tests/test_operator_customer_gates.py
           if git diff --cached --quiet; then
-            echo 'No source changes to commit'
+            echo 'Source repair was already committed'
           else
             git commit -m 'fix: enforce operator downstream ownership'
             git push origin "HEAD:${GITHUB_HEAD_REF}"
