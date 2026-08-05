@@ -10,17 +10,18 @@ on:
       - "tests/test_filters.py"
       - "tests/test_operator_customer_gates.py"
       - ".github/workflows/validate-operator-customer-gates.yml"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: operator-gate-validation-${{ github.event.pull_request.number }}
+  group: operator-gate-validation-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   validate:
-    if: github.head_ref == 'agent/fix-operator-customer-gates'
+    if: github.head_ref == 'agent/fix-operator-customer-gates' || github.ref_name == 'agent/fix-operator-customer-gates'
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -28,7 +29,7 @@ jobs:
       - name: Check out validation branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Set up Python
