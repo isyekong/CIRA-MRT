@@ -9,7 +9,7 @@ permissions:
 
 concurrency:
   group: operator-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   bootstrap-and-validate:
@@ -43,9 +43,11 @@ jobs:
           install -D -m 0755 \
             /tmp/operator-gate-fix/cira-fix/tools/apply_operator_gate_fix.py \
             tools/apply_operator_gate_fix.py
-          install -D -m 0755 \
-            /tmp/operator-gate-fix/cira-fix/tools/validate_operator_outputs.py \
-            tools/validate_operator_outputs.py
+          if [ ! -f tools/validate_operator_outputs.py ]; then
+            install -D -m 0755 \
+              /tmp/operator-gate-fix/cira-fix/tools/validate_operator_outputs.py \
+              tools/validate_operator_outputs.py
+          fi
           install -D -m 0644 \
             /tmp/operator-gate-fix/cira-fix/tests/test_operator_customer_gates.py \
             tests/test_operator_customer_gates.py
