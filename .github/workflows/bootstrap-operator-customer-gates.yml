@@ -58,17 +58,21 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           script = Path('mrt_cn_routes.py')
           text = script.read_text(encoding='utf-8')
-          old = '''        spec = ({
-              "kind": kind,
-              "family": group.get("family"),
-              "aggregate": bool(group.get("aggregate")),
-              "enabled": enabled,
-          } if gate_type in ("domestic_customer_cone", "customer_cone") else None)
-          '''
-          new = '''        family = group.get("family")
+          if 'candidate_families = {' not in text:
+              pattern = re.compile(
+                  r'^        spec = \(\{\n'
+                  r'            "kind": kind,\n'
+                  r'            "family": group\.get\("family"\),\n'
+                  r'            "aggregate": bool\(group\.get\("aggregate"\)\),\n'
+                  r'            "enabled": enabled,\n'
+                  r'        \} if gate_type in \("domestic_customer_cone", "customer_cone"\) else None\)',
+                  re.MULTILINE,
+              )
+              replacement = '''        family = group.get("family")
           if family is None and not group.get("aggregate"):
               candidate_families = {
                   OPERATOR_ANCHOR_FAMILY[asn]
@@ -83,33 +87,34 @@ jobs:
               "family": family,
               "aggregate": bool(group.get("aggregate")),
               "enabled": enabled,
-          } if gate_type in ("domestic_customer_cone", "customer_cone") else None)
-          '''
-          if old in text:
-              script.write_text(text.replace(old, new, 1), encoding='utf-8')
-          elif 'candidate_families = {' not in text:
-              raise SystemExit('build_group_gates compatibility block not found')
+          } if gate_type in ("domestic_customer_cone", "customer_cone") else None)'''
+              text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'build_group_gates compatibility replacement count={count}')
+              script.write_text(text, encoding='utf-8')
 
           tests = Path('tests/test_filters.py')
           text = tests.read_text(encoding='utf-8')
-          old = '''# Rule 2: a CN-registered origin is admitted even when the path chain is broken.
-          def test_cone_gate_includes_cn_origin_even_without_chain():
-              # 58453<->4826 not a customer link, but origin 4808 is CN-registered.
-              buffers = _flush_one([58453, 4826, 4808],
-                                   "1.2.4.0/24", _MOBILE_GLOBAL, cn={4808}, p2c={})
-              assert "1.2.4.0/24" in buffers["mobile_global"]["v4"]
-          '''
-          new = '''# CN registration alone must not bypass the verified downstream chain.
+          if 'test_cone_gate_rejects_cn_origin_without_chain' not in text:
+              pattern = re.compile(
+                  r'^# Rule 2: a CN-registered origin is admitted even when the path chain is broken\.\n'
+                  r'def test_cone_gate_includes_cn_origin_even_without_chain\(\):\n'
+                  r'    # 58453<->4826 not a customer link, but origin 4808 is CN-registered\.\n'
+                  r'    buffers = _flush_one\(\[58453, 4826, 4808\],\n'
+                  r'                         "1\.2\.4\.0/24", _MOBILE_GLOBAL, cn=\{4808\}, p2c=\{\}\)\n'
+                  r'    assert "1\.2\.4\.0/24" in buffers\["mobile_global"\]\["v4"\]',
+                  re.MULTILINE,
+              )
+              replacement = '''# CN registration alone must not bypass the verified downstream chain.
           def test_cone_gate_rejects_cn_origin_without_chain():
               # 58453<->4826 is not a customer link, even though origin 4808 is CN.
               buffers = _flush_one([58453, 4826, 4808],
                                    "1.2.4.0/24", _MOBILE_GLOBAL, cn={4808}, p2c={})
-              assert "1.2.4.0/24" not in buffers["mobile_global"]["v4"]
-          '''
-          if old in text:
-              tests.write_text(text.replace(old, new, 1), encoding='utf-8')
-          elif 'test_cone_gate_rejects_cn_origin_without_chain' not in text:
-              raise SystemExit('legacy CN bypass test block not found')
+              assert "1.2.4.0/24" not in buffers["mobile_global"]["v4"]'''
+              text, count = pattern.subn(replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'legacy CN bypass test replacement count={count}')
+              tests.write_text(text, encoding='utf-8')
           PY
 
       - name: Commit source repair to branch
