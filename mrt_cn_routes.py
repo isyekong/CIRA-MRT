@@ -2129,21 +2129,21 @@ def build_group_gates(groups: dict, cn_origin_asns: Optional[set],
             kind = "none"
 
         family = group.get("family")
-if family is None and not group.get("aggregate"):
-    candidate_families = {
-        OPERATOR_ANCHOR_FAMILY[asn]
-        for asn in group.get("asns", ())
-        if asn in OPERATOR_ANCHOR_FAMILY
-    }
-    if len(candidate_families) == 1:
-        family = next(iter(candidate_families))
+        if family is None and not group.get("aggregate"):
+            candidate_families = {
+                OPERATOR_ANCHOR_FAMILY[asn]
+                for asn in group.get("asns", ())
+                if asn in OPERATOR_ANCHOR_FAMILY
+            }
+            if len(candidate_families) == 1:
+                family = next(iter(candidate_families))
 
-spec = ({
-    "kind": kind,
-    "family": family,
-    "aggregate": bool(group.get("aggregate")),
-    "enabled": enabled,
-} if gate_type in ("domestic_customer_cone", "customer_cone") else None)
+        spec = ({
+            "kind": kind,
+            "family": family,
+            "aggregate": bool(group.get("aggregate")),
+            "enabled": enabled,
+        } if gate_type in ("domestic_customer_cone", "customer_cone") else None)
         gates[key] = spec
         if spec is not None:
             any_gated = True
